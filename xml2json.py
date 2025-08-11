@@ -68,7 +68,7 @@ def convert_voc_to_coco(xml_dir, output_json):
                 xmax = float(bbox.find('xmax').text)
                 ymax = float(bbox.find('ymax').text)
 
-                # COCO 바운딩 박스 형식 [x, y, height, width]
+                # COCO 바운딩 박스 형식 [x, y, width, height]
                 bbox_width = xmax - xmin
                 bbox_height = ymax - ymin
                 area = bbox_width * bbox_height
