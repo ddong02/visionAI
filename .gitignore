@@ -1,3 +1,4 @@
 data/
 vision/
 .DS_Store
+image_classification/__pycache__/
