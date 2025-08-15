@@ -15,7 +15,6 @@ from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 from transforms import get_mixup_cutmix
 
-import matplotlib.pyplot as plt
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
@@ -52,15 +51,14 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
                 # Reset ema buffer to keep copying weights during warmup period
                 model_ema.n_averaged.fill_(0)
 
-        # acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
         acc1, acc5 = utils.accuracy(output, target, topk=(1, 2))
         batch_size = image.shape[0]
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
         metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
         metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
-    
-    return metric_logger.loss.global_avg ,metric_logger.acc1.global_avg
+
+    return metric_logger.loss.global_avg, metric_logger.acc1.global_avg
 
 
 def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
@@ -76,7 +74,6 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
             output = model(image)
             loss = criterion(output, target)
 
-            # acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 2))
             # FIXME need to take into account that the datasets
             # could have been padded in distributed setup
@@ -86,6 +83,7 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
             metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
             num_processed_samples += batch_size
     # gather the stats from all processes
+
     num_processed_samples = utils.reduce_across_processes(num_processed_samples)
     if (
         hasattr(data_loader.dataset, "__len__")
@@ -103,8 +101,8 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     metric_logger.synchronize_between_processes()
 
     print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
+    return metric_logger.loss.global_avg, metric_logger.acc1.global_avg
 
-    return metric_logger.loss.global_avg ,metric_logger.acc1.global_avg
 
 def _get_cache_path(filepath):
     import hashlib
@@ -210,7 +208,7 @@ def main(args):
         utils.mkdir(args.output_dir)
 
     utils.init_distributed_mode(args)
-    print(args)
+    # print(args)
 
     device = torch.device(args.device)
 
@@ -249,16 +247,15 @@ def main(args):
     )
 
     print("Creating model")
-    # model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
     model = torchvision.models.get_model(args.model, weights=args.weights)
-    in_features = model.fc.in_features # fc층의 입력값 2048
-    model.fc = nn.Linear(in_features, num_classes) # nn.Linear(2048, 2)와 같음
-    model.to(device)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
 
     for param in model.parameters():
-        param.requires_grad=False
-    model.fc.weight.requires_grad=True
-    model.fc.bias.requires_grad=True
+        param.requires_grad = False
+    model.fc.weight.requires_grad = True
+    model.fc.bias.requires_grad = True
+
+    model.to(device)
 
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -372,48 +369,30 @@ def main(args):
             evaluate(model, criterion, data_loader_test, device=device)
         return
 
+    ### Setting up TensorBoard
+    from torch.utils.tensorboard import SummaryWriter
+    log_path = os.path.join(args.output_dir, 'tensorboard_logs')
+    os.makedirs(log_path, exist_ok=True)
+    writer = SummaryWriter(log_dir=log_path)
+    print(f"### writer.log_dir = {writer.log_dir}")
+
     print("Start training")
-    print(f'Using device: {device}')
     start_time = time.time()
-    plt.ion() # before starting training, activate interactive mode.
-    train_losses, val_losses = [], []
-    train_acc1s, val_acc1s = [], []
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         train_loss, train_acc1 = \
         train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema, scaler)
-        print('returned value of train_one_epoch()')
-        print(f'train loss: {train_loss}, train_acc1: {train_acc1}')
         lr_scheduler.step()
         val_loss, val_acc1 = \
         evaluate(model, criterion, data_loader_test, device=device)
-        print('returned value of evaluate()')
-        print(f'val loss: {val_loss}, val acc1: {val_acc1}')
-        train_losses.append(train_loss)
-        train_acc1s.append(train_acc1)
-        val_losses.append(val_loss)
-        val_acc1s.append(val_acc1)
-        plt.figure(1, figsize=(15, 5))
-        plt.clf()
-        plt.subplot(1, 2, 1)
-        plt.grid(True)
-        plt.title("Loss per Epoch")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.plot(train_losses, label='Train Loss', marker='o')
-        plt.plot(val_losses, label='Val Loss', marker='o')
-        plt.legend()
-        plt.subplot(1, 2, 2)
-        plt.grid(True)
-        plt.title("Accuracy per Epoch")
-        plt.xlabel("Epoch")
-        plt.ylabel("Accuracy (%)")
-        plt.plot(train_acc1s, label='Train Acc1', marker='o')
-        plt.plot(val_acc1s, label='Val Acc1', marker='o')
-        plt.legend()
-        plt.tight_layout()
-        plt.pause(0.01)
+        # add loss and acc1 to tensorboard
+        writer.add_scalar('Train/Loss', train_loss, epoch)
+        writer.add_scalar('Train/Acc1', train_acc1, epoch)
+        print(f"### added train loss({train_loss:.4f}), train_acc1({train_acc1:.4f}) to tensorboard.")
+        writer.add_scalar('Val/Loss', val_loss, epoch)
+        writer.add_scalar('Val/acc1', val_acc1, epoch)
+        print(f"### added val loss({val_loss:.4f}), val_acc1({val_acc1:.4f}) to tensorboard.")
 
         if model_ema:
             evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
@@ -432,16 +411,12 @@ def main(args):
             utils.save_on_master(checkpoint, os.path.join(args.output_dir, f"model_{epoch}.pth"))
             utils.save_on_master(checkpoint, os.path.join(args.output_dir, "checkpoint.pth"))
 
-    torch.save(model, os.path.join(args.output_dir, "model.pth"))
+    torch.save(model, os.path.join(args.output_dir, 'final_model.pth'))
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print(f"Training time {total_time_str}")
-
-    plt.ioff()
-    plt.show()
-    plt.savefig(os.path.join(args.output_dir, "training_curve.png"))
-
+    writer.close()
 
 def get_args_parser(add_help=True):
     import argparse
@@ -580,4 +555,4 @@ if __name__ == "__main__":
     args = get_args_parser().parse_args()
     main(args)
 
-# python train_and_plotting.py -j 6 --data-path data/dataset1 --model resnet50 --device cpu --epochs 50 --opt adamw --lr 0.001 --weights ResNet50_Weights.IMAGENET1K_V1 --output-dir  data/output3
+# python train_tensorboard.py -j 6 --data-path data/dataset1 --model resnet50 --device mps --epochs 50 --opt adamw --lr 0.001 --weights ResNet50_Weights.IMAGENET1K_V1 --output-dir  data/output_tensorboard
