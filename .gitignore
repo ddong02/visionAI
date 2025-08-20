@@ -1,4 +1,7 @@
 data/
 vision/
 .DS_Store
+.vscode/
 image_classification/__pycache__/
+image_classification/my_test/**
+!image_classification/my_test/my_test.cpp
