@@ -1,4 +1,7 @@
 import torch
+import torch.nn as nn
+import torchvision
+from torchvision.models import ResNet18_Weights
 import glob
 import os
 from PIL import Image
@@ -48,37 +51,19 @@ train_dataset = datasets.MNIST(root=data_dir,
                                transform=train_transform)
 test_dataset = CustomDataset(test_dir,
                              transform=test_transform)
-# 역정규화 함수
-def denormalize(img, mean, std):
-    img = img.clone()
-    for t, m, s in zip(img, mean, std):
-        t.mul_(s).add_(m)
-    return img
-
-# 이미지 5개씩 출력 (역정규화 적용)
-mean = [0.485, 0.456, 0.406]
-std = [0.229, 0.224, 0.225]
-plt.figure(figsize=(12, 6))
-for i in range(5):
-    img, label = train_dataset[i]
-    print(f"train image.shape: {img.shape}")
-    img_show = denormalize(img, mean, std)
-    plt.subplot(2, 5, i+1)
-    plt.imshow(img_show.permute(1, 2, 0))
-    plt.title(f"Train: {label}")
-    plt.axis('off')
-
-for i in range(5):
-    img, label = test_dataset[i]
-    print(f"test image.shape: {img.shape}")
-    img_show = denormalize(img, mean, std)
-    plt.subplot(2, 5, 5+i+1)
-    plt.imshow(img_show.permute(1, 2, 0).clip(0, 1))
-    plt.title(f"Test: {label}")
-    plt.axis('off')
-
-plt.tight_layout()
-plt.show()
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+model = torchvision.models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+# MNIST 분류를 위해 FC수정
+in_features = model.fc.in_features
+model.fc = nn.Linear(in_features, 10)
+
+for param in model.parameters():
+    param.requires_grad = False
+model.fc.weight.requires_grad = True
+model.fc.bias.requires_grad = True
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+criterion = nn.CrossEntropyLoss()
