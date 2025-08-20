@@ -31,6 +31,8 @@ class CustomDataset(Dataset):
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
+    correct = 0
+    total = 0
     for images, labels in tqdm(train_loader, desc='Train'):
         images, labels = images.to(device), labels.to(device)
         outputs = model(images)
@@ -39,12 +41,35 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item() * images.size(0)
+
+        predicted = torch.argmax(outputs.data, dim=1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
     
     epoch_loss = running_loss / len(train_loader.dataset)
+    accuracy = 100 * correct / total
+    return epoch_loss, accuracy
 
-    return epoch_loss
+def validate(model, val_loader, criterion, device):
+    model.eval()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, labels in tqdm(val_loader, desc='Validate'):
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            running_loss += loss.item() * images.size(0)
+
+            predicted = torch.argmax(outputs.data, dim=1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    epoch_loss = running_loss / len(val_loader.dataset)
+    accuracy = 100 * correct / total
+    return epoch_loss, accuracy
 
 train_transform = transforms.Compose([
     transforms.ToTensor(),
@@ -82,10 +107,6 @@ val_dataset = datasets.MNIST(root=data_dir,
 test_dataset = CustomDataset(test_dir,
                              transform=test_transform)
 
-print(f"len(train_dataset): {len(train_dataset)}")
-print(f"len(val_dataset): {len(val_dataset)}")
-print(f"len(test_dataset): {len(test_dataset)}")
-
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
@@ -107,40 +128,10 @@ num_epoch = 50
 device = 'mps' if torch.backends.mps.is_available() else 'cpu'
 model.to(device)
 
-# 역정규화 함수
-def denormalize(img, mean, std):
-    img = img.clone()
-    for t, m, s in zip(img, mean, std):
-        t.mul_(s).add_(m)
-    return img
-
-# 이미지 5장씩 출력 (train/val/test)
-mean = [0.485, 0.456, 0.406]
-std = [0.229, 0.224, 0.225]
-plt.figure(figsize=(15, 9))
-for i in range(5):
-    img, label = train_dataset[i]
-    img_show = denormalize(img, mean, std)
-    plt.subplot(3, 5, i+1)
-    plt.imshow(img_show.permute(1, 2, 0))
-    plt.title(f"Train: {label}")
-    plt.axis('off')
-
-for i in range(5):
-    img, label = val_dataset[i]
-    img_show = denormalize(img, mean, std)
-    plt.subplot(3, 5, 5+i+1)
-    plt.imshow(img_show.permute(1, 2, 0))
-    plt.title(f"Val: {label}")
-    plt.axis('off')
-
-for i in range(5):
-    img, label = test_dataset[i]
-    img_show = denormalize(img, mean, std)
-    plt.subplot(3, 5, 10+i+1)
-    plt.imshow(img_show.permute(1, 2, 0))
-    plt.title(f"Test: {label}")
-    plt.axis('off')
-
-plt.tight_layout()
-plt.show()
+print(f"Start Training... Using device: {device}")
+for epoch in range(num_epoch):
+    print(f'\nEpoch: {epoch+1}/{num_epoch}')
+    train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
+    print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}")
+    val_loss, val_acc = validate(model, val_loader, criterion, device)
+    print(f"Validation Loss: {val_loss:.4f}, Validation Acc: {val_acc:.4f}")
