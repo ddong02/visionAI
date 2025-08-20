@@ -24,21 +24,19 @@ class CustomDataset(Dataset):
             image = self.transform(image)
         return image, label
 
-# 1채널 흑백 이미지인 기존 MNIST 데이터를 3채널 RGB로 변환 [1, 28, 28] → [3, 28, 28]
-def to_rgb(x):
-    return x.repeat(3, 1, 1)
-
 train_transform = transforms.Compose([
+    transforms.ToTensor(),
     # -15 ~ +15도 사이의 무작위 회전
     transforms.RandomRotation(degrees=15),
-    transforms.ToTensor(),
-    transforms.Lambda(to_rgb),
-    transforms.Normalize((0.1307, 0.1307, 0.1307), (0.3081, 0.3081, 0.3081))
+    transforms.Resize((224, 224)),
+    transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 test_transform = transforms.Compose([
-    transforms.Resize((28, 28)),
     transforms.ToTensor(),
-    transforms.Normalize((0.1307, 0.1307, 0.1307), (0.3081, 0.3081, 0.3081))
+    transforms.Lambda(lambda x: 1 - x),
+    transforms.Resize((224, 224)),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
 data_dir = './data'
@@ -50,6 +48,37 @@ train_dataset = datasets.MNIST(root=data_dir,
                                transform=train_transform)
 test_dataset = CustomDataset(test_dir,
                              transform=test_transform)
+# 역정규화 함수
+def denormalize(img, mean, std):
+    img = img.clone()
+    for t, m, s in zip(img, mean, std):
+        t.mul_(s).add_(m)
+    return img
+
+# 이미지 5개씩 출력 (역정규화 적용)
+mean = [0.485, 0.456, 0.406]
+std = [0.229, 0.224, 0.225]
+plt.figure(figsize=(12, 6))
+for i in range(5):
+    img, label = train_dataset[i]
+    print(f"train image.shape: {img.shape}")
+    img_show = denormalize(img, mean, std)
+    plt.subplot(2, 5, i+1)
+    plt.imshow(img_show.permute(1, 2, 0))
+    plt.title(f"Train: {label}")
+    plt.axis('off')
+
+for i in range(5):
+    img, label = test_dataset[i]
+    print(f"test image.shape: {img.shape}")
+    img_show = denormalize(img, mean, std)
+    plt.subplot(2, 5, 5+i+1)
+    plt.imshow(img_show.permute(1, 2, 0).clip(0, 1))
+    plt.title(f"Test: {label}")
+    plt.axis('off')
+
+plt.tight_layout()
+plt.show()
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
