@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from tqdm import tqdm
-from torchvision.models import ResNet18_Weights
+from torchvision.models import ResNet50_Weights
 import glob
 import os
 from PIL import Image
@@ -75,6 +75,19 @@ def inference(model, test_loader, device):
     model.eval()
     correct = 0
     total = 0
+    shown = 0
+    max_show = 30
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+    def denormalize(img, mean, std):
+        img = img.cpu().clone()
+        for t, m, s in zip(img, mean, std):
+            t.mul_(s).add_(m)
+        return img
+    # 30개 이미지, 예측값, 실제값을 하나의 창에 출력
+    imgs_to_show = []
+    preds_to_show = []
+    labels_to_show = []
     with torch.no_grad():
         for images, labels in tqdm(test_loader, desc='Inference'):
             images, labels = images.to(device), labels.to(device)
@@ -82,6 +95,26 @@ def inference(model, test_loader, device):
             predicted = torch.argmax(outputs.data, dim=1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+            # 30개만 저장
+            for i in range(images.size(0)):
+                if shown < max_show:
+                    imgs_to_show.append(denormalize(images[i], mean, std))
+                    preds_to_show.append(predicted[i].item())
+                    labels_to_show.append(labels[i].item())
+                    shown += 1
+                else:
+                    break
+            if shown >= max_show:
+                break
+    if imgs_to_show:
+        plt.figure(figsize=(20, 12))
+        for i in range(max_show):
+            plt.subplot(6, 5, i+1)
+            plt.imshow(imgs_to_show[i].permute(1, 2, 0))
+            plt.title(f"Pred: {preds_to_show[i]} / Label: {labels_to_show[i]}")
+            plt.axis('off')
+        plt.tight_layout()
+        plt.show()
     accuracy = 100 * correct / total
     return accuracy
 
@@ -126,7 +159,7 @@ def main(inference_only=False):
     val_loader = DataLoader(val_dataset, batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
 
-    model = torchvision.models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
+    model = torchvision.models.resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
     # MNIST 분류를 위해 FC수정
     in_features = model.fc.in_features
     model.fc = nn.Linear(in_features, 10)
@@ -142,8 +175,8 @@ def main(inference_only=False):
     num_epoch = 50
     device = 'mps' if torch.backends.mps.is_available() else 'cpu'
     model.to(device)
-    model_save_dir = 'data/mnist_models'
-    plot_save_dir = 'data/mnist_graphs'
+    model_save_dir = 'data/mnist_models_2'
+    plot_save_dir = 'data/mnist_graphs_2'
     os.makedirs(model_save_dir, exist_ok=True)
     os.makedirs(plot_save_dir, exist_ok=True)
 
