@@ -95,20 +95,20 @@ def inference(model, test_loader, device):
             predicted = torch.argmax(outputs.data, dim=1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            # 30개만 저장
+            # 실제 레이블이 0 또는 1인 것만 저장, 최대 30개
             for i in range(images.size(0)):
-                if shown < max_show:
+                if shown < max_show and labels[i].item() in [0, 1]:
                     imgs_to_show.append(denormalize(images[i], mean, std))
                     preds_to_show.append(predicted[i].item())
                     labels_to_show.append(labels[i].item())
                     shown += 1
-                else:
+                if shown >= max_show:
                     break
             if shown >= max_show:
                 break
     if imgs_to_show:
         plt.figure(figsize=(20, 12))
-        for i in range(max_show):
+        for i in range(len(imgs_to_show)):
             plt.subplot(6, 5, i+1)
             plt.imshow(imgs_to_show[i].permute(1, 2, 0))
             plt.title(f"Pred: {preds_to_show[i]} / Label: {labels_to_show[i]}")
