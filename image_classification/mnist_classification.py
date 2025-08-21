@@ -75,19 +75,6 @@ def inference(model, test_loader, device):
     model.eval()
     correct = 0
     total = 0
-    shown = 0
-    max_show = 30
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-    def denormalize(img, mean, std):
-        img = img.cpu().clone()
-        for t, m, s in zip(img, mean, std):
-            t.mul_(s).add_(m)
-        return img
-    # 30개 이미지, 예측값, 실제값을 하나의 창에 출력
-    imgs_to_show = []
-    preds_to_show = []
-    labels_to_show = []
     with torch.no_grad():
         for images, labels in tqdm(test_loader, desc='Inference'):
             images, labels = images.to(device), labels.to(device)
@@ -95,26 +82,6 @@ def inference(model, test_loader, device):
             predicted = torch.argmax(outputs.data, dim=1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            # 실제 레이블이 0 또는 1인 것만 저장, 최대 30개
-            for i in range(images.size(0)):
-                if shown < max_show and labels[i].item() in [0, 1]:
-                    imgs_to_show.append(denormalize(images[i], mean, std))
-                    preds_to_show.append(predicted[i].item())
-                    labels_to_show.append(labels[i].item())
-                    shown += 1
-                if shown >= max_show:
-                    break
-            if shown >= max_show:
-                break
-    if imgs_to_show:
-        plt.figure(figsize=(20, 12))
-        for i in range(len(imgs_to_show)):
-            plt.subplot(6, 5, i+1)
-            plt.imshow(imgs_to_show[i].permute(1, 2, 0))
-            plt.title(f"Pred: {preds_to_show[i]} / Label: {labels_to_show[i]}")
-            plt.axis('off')
-        plt.tight_layout()
-        plt.show()
     accuracy = 100 * correct / total
     return accuracy
 
